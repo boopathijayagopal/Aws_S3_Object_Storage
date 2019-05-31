@@ -1,0 +1,111 @@
+package com.ford.sbom2.customerservices.aws;
+
+import java.io.File;
+import java.io.InputStream;
+import java.util.List;
+
+import com.amazonaws.ClientConfiguration;
+import com.amazonaws.Protocol;
+import com.amazonaws.auth.AWSStaticCredentialsProvider;
+import com.amazonaws.auth.BasicAWSCredentials;
+import com.amazonaws.client.builder.AwsClientBuilder;
+import com.amazonaws.services.s3.AmazonS3;
+import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+import com.amazonaws.services.s3.model.GetObjectRequest;
+import com.amazonaws.services.s3.model.ListObjectsRequest;
+import com.amazonaws.services.s3.model.ObjectListing;
+import com.amazonaws.services.s3.model.PutObjectRequest;
+import com.amazonaws.services.s3.model.S3ObjectSummary;
+import com.ford.it.logging.ILogger;
+import com.ford.it.logging.Level;
+import com.ford.it.logging.LogFactory;
+import com.ford.it.properties.PropertyGroup;
+import com.ford.spbom.common.SPbomPersistenceException;
+import com.ford.spbom.dbconn.SPbomDatabaseConfig;
+
+/**
+ * S3ObjStoreAndRetrieve class is able to create, retrieve and delete the object
+ * from AWS S3.
+ */
+public class S3ObjStoreAndRetrieve {
+	private static final String CLASS_NAME = S3ObjStoreAndRetrieve.class.getName();
+	private static final ILogger log = LogFactory.getInstance().getLogger(CLASS_NAME);
+
+	private static String awsAccessKeyId;
+	private static String awsSecretAccessKey;
+	private static String bucketName;
+	private static String endPoint;
+	private static final String ACCESS_KEY = "accessKey";
+	private static final String SECRET_KEY = "secretKey";
+	private static final String BUCKET_NAME = "bucketName";
+	private static final String URL = "endPoint";
+	private static final String S3_SIGNER = "S3SignerType";
+	private static final boolean PATH_STYLE_ACCESS = true;
+	private static final String SIGN_IN_GREGION = "Multi-Regional";
+
+	static {
+		SPbomDatabaseConfig config = SPbomDatabaseConfig.getInstance();
+		PropertyGroup propertyGroup = null;
+		try {
+			propertyGroup = config.getPropertyGroup("AWS");
+		} catch (SPbomPersistenceException e) {
+			log.log(Level.SEVERE, e.getMessage());
+		}
+		awsAccessKeyId = propertyGroup.getString(ACCESS_KEY);
+		awsSecretAccessKey = propertyGroup.getString(SECRET_KEY);
+		bucketName = propertyGroup.getString(BUCKET_NAME);
+		endPoint = propertyGroup.getString(URL);
+	}
+
+	public InputStream gets3ObjStream(String key) {
+		log.log(Level.INFO, "Inside the Method gets3ObjStream()");
+		AmazonS3 s3 = getAmazonS3Client();
+		log.log(Level.INFO, "Downloading an object for key: " + key);
+		return s3.getObject(new GetObjectRequest(bucketName, key)).getObjectContent();
+	}
+
+	public void puts3Obj(String key, File file) {
+		log.log(Level.INFO, "Inside the Method puts3Obj()");
+		AmazonS3 s3 = getAmazonS3Client();
+		log.log(Level.INFO, "uploading an object for key: " + key);
+		s3.putObject(new PutObjectRequest(bucketName, key, file));
+	}
+
+	public void deleteS3ObjStream(List<String> awsObjKeyList) {
+		log.log(Level.INFO, "Inside the Method deleteS3ObjStream()");
+		AmazonS3 s3 = getAmazonS3Client();
+		ObjectListing objectListing = s3
+				.listObjects(new ListObjectsRequest().withBucketName(bucketName).withPrefix("Report"));
+		for (S3ObjectSummary objectSummary : objectListing.getObjectSummaries()) {
+			if (!awsObjKeyList.contains(objectSummary.getKey())) {
+				log.log(Level.INFO, "Deleting an object: " + objectSummary.getKey() + " from AWS.\n");
+				s3.deleteObject(bucketName, objectSummary.getKey());
+			}
+		}
+	}
+
+	public void deleteReport(String uuId) {
+		log.log(Level.INFO, "Inside the Method deleteReport()");
+		AmazonS3 s3 = getAmazonS3Client();
+		log.log(Level.INFO, "deleting objects for Key: " + uuId);
+		if (s3.doesBucketExistV2(bucketName)) {
+			// deleting the report file
+			s3.deleteObject(bucketName, uuId);
+			// deleting the input file
+			s3.deleteObject(bucketName, uuId + "_old");
+		}
+	}
+
+	private AmazonS3 getAmazonS3Client() {
+		log.log(Level.INFO, "Inside the method getAmazonS3Client()");
+		BasicAWSCredentials creds = new BasicAWSCredentials(awsAccessKeyId, awsSecretAccessKey);
+		ClientConfiguration clientConfiguration = new ClientConfiguration();
+		clientConfiguration.setSignerOverride(S3_SIGNER);
+		clientConfiguration.withProtocol(Protocol.HTTPS);
+		log.log(Level.INFO, "Establising the connection with Amazon S3");
+		return AmazonS3ClientBuilder.standard().withPathStyleAccessEnabled(PATH_STYLE_ACCESS)
+				.withCredentials(new AWSStaticCredentialsProvider(creds)).withClientConfiguration(clientConfiguration)
+				.withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(endPoint, SIGN_IN_GREGION))
+				.build();
+	}
+}
