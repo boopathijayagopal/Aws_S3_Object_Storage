@@ -1,5 +1,3 @@
-# hello-world
-just a repo
-hi ALL,
+# Amazon S3 Module
 
-end of the file.
+Its a util used to store and retrieve the objects in Amazon S3.
